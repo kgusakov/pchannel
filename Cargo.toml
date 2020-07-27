@@ -1,0 +1,16 @@
+[package]
+name = "equeue"
+version = "0.1.0"
+authors = ["Kirill Gusakov <kgusakov@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "equeue"           # The name of the target.
+path = "src/lib.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+[dev-dependencies]
+tempfile = "3.1.0"
