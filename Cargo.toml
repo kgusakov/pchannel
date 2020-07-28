@@ -11,6 +11,7 @@ path = "src/lib.rs"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+tokio = {version = "0.2.22", features = ["sync"]}
 
 [dev-dependencies]
 tempfile = "3.1.0"

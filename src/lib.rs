@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt::Debug;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
+use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -250,5 +251,53 @@ impl FromBytes for i32 {
     fn from_bytes(bytes: Vec<u8>) -> Self {
         assert!(bytes.len() == 4);
         i32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
+    }
+}
+
+pub struct Storage<Id, Value> {
+    data_path: std::path::PathBuf,
+    ack_path: std::path::PathBuf,
+    data_mutex: std::sync::Mutex<bool>,
+    ack_mutex: tokio::sync::Mutex<bool>,
+    phantom_id: PhantomData<Id>,
+    phantom_value: PhantomData<Value>,
+}
+
+impl<Id: ToBytes + FromBytes, Value: ToBytes + FromBytes> Storage<Id, Value> {
+    pub fn new(data_path: PathBuf, ack_path: PathBuf) -> Self {
+        Self {
+            data_path,
+            ack_path,
+            data_mutex: std::sync::Mutex::new(false),
+            ack_mutex: tokio::sync::Mutex::new(false),
+            phantom_id: PhantomData,
+            phantom_value: PhantomData,
+        }
+    }
+
+    pub fn load(&self) -> Vec<(Id, Value)> {
+        unimplemented!()
+    }
+
+    pub fn persist(&self, element: (Id, Value)) -> Result<(), Box<dyn std::error::Error>> {
+        let _ = self.data_mutex.lock();
+        unimplemented!()
+    }
+
+    pub fn persist_all(
+        &self,
+        elements: Vec<(Id, Value)>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let _ = self.data_mutex.lock();
+        unimplemented!()
+    }
+
+    pub async fn remove(&self, id: Id) -> Result<(), Box<dyn std::error::Error>> {
+        let _ = self.ack_mutex.lock().await;
+        unimplemented!()
+    }
+
+    fn compaction(&self) -> Result<(), Box<dyn std::error::Error>> {
+        unimplemented!()
     }
 }
