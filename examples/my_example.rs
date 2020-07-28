@@ -1,43 +1,27 @@
-extern crate equeue;
-
-use std::error::Error;
-use std::fmt::Debug;
-use std::fs;
-use std::fs::{File, OpenOptions};
-use std::io::prelude::*;
-use std::iter::Iterator;
-use std::path::PathBuf;
-use std::sync::mpsc::*;
-use std::time::Instant;
+use equeue::persist_channel::*;
+use tempfile::NamedTempFile;
+use tokio::runtime::Runtime;
 
 fn main() {
-    let end = 1000;
+    let mut runtime = Runtime::new().unwrap();
+    let data_file = NamedTempFile::new().unwrap();
+    let ack_file = NamedTempFile::new().unwrap();
 
-    {
-        let range = std::ops::Range { start: 0, end };
-        let mut segment = equeue::Segment::<i32>::new(PathBuf::from("/tmp/segment.data"));
-        let now = Instant::now();
-        {
-            for e in range {
-                // println!("Add {:?}", e);
-                segment.add(e).unwrap();
-            }
-        }
-        println!(
-            "Per element fsync time elapsed: {:?}",
-            now.elapsed().as_millis()
-        );
-    }
+    let (data_path, ack_path) = (
+        data_file.path().to_path_buf(),
+        ack_file.path().to_path_buf(),
+    );
+    let (tx, mut rx) = persistent_channel(data_path, ack_path);
+    
+    let m = (1, 1);
+    tx.send(m.clone()).unwrap();
+    println!("Sent message {:?}", m);
 
-    {
-        let range: Vec<i32> = std::ops::Range { start: 0, end }.collect();
-        let mut segment = equeue::Segment::<i32>::new(PathBuf::from("/tmp/segment.data"));
-        let now = Instant::now();
-        {
-            segment.add_batch(range);
-        }
-        println!("Batching Time elapsed: {:?}", now.elapsed().as_millis());
-    }
-    let mut segment = equeue::Segment::<i32>::load(PathBuf::from("/tmp/segment.data")).unwrap();
-    assert_eq!(segment.remove(), end - 1);
+    let f = async move {
+        let m = rx.recv().await?;
+        println!("Received message {:?}", (m.id, m.value));
+        m.ack().await;
+        Some(())
+    };
+    runtime.block_on(f).unwrap();
 }
