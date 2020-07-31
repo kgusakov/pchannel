@@ -11,8 +11,8 @@ fn main() {
         data_file.path().to_path_buf(),
         ack_file.path().to_path_buf(),
     );
-    let (tx, mut rx) = persistent_channel(data_path, ack_path);
-    
+    let (tx, mut rx) = persistent_channel(data_path, ack_path).unwrap();
+
     let m = (1, 1);
     tx.send(m.clone()).unwrap();
     println!("Sent message {:?}", m);
@@ -20,7 +20,7 @@ fn main() {
     let f = async move {
         let m = rx.recv().await?;
         println!("Received message {:?}", (m.id, m.value));
-        m.ack().await;
+        m.ack().await.unwrap();
         Some(())
     };
     runtime.block_on(f).unwrap();
