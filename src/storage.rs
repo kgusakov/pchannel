@@ -8,6 +8,7 @@ use std::path::PathBuf;
 use std::hash::Hash;
 use thiserror::Error;
 
+//  TODO: Enrich error with the (id, value) which force it
 #[derive(Error, Debug)]
 pub enum StorageError {
     #[error("data serialization inside storage failed")]

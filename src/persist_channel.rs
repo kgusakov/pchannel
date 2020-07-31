@@ -15,12 +15,15 @@ use tokio::sync::mpsc::*;
 #[derive(Debug)]
 pub enum SendError<T> {
     SendError(tokio::sync::mpsc::error::SendError<T>),
-    PersistError(StorageError)
+    PersistError(StorageError),
 }
 
 impl<T> std::fmt::Display for SendError<T> {
     fn fmt(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(fmt, "channel closed")
+        match self {
+            Self::SendError(_) => write!(fmt, "channel closed"),
+            Self::PersistError(_) => write!(fmt, "error during persist the message"),
+        }
     }
 }
 
@@ -38,13 +41,12 @@ impl<T> From<StorageError> for SendError<T> {
 
 impl<T: std::fmt::Debug> std::error::Error for SendError<T> {}
 
-
 #[derive(Error, Debug)]
 pub enum RecvError {
     #[error(transparent)]
     ReceivError(#[from] tokio::sync::mpsc::error::RecvError),
     #[error(transparent)]
-    PersistError(#[from] StorageError)
+    PersistError(#[from] StorageError),
 }
 
 pub fn persistent_channel<
@@ -78,8 +80,10 @@ pub struct PersistentSender<Id, Value> {
     storage: Arc<Storage<Id, Value>>,
 }
 
-impl<Id: Serialize + DeserializeOwned + Eq + Hash + Debug, Value: Serialize + DeserializeOwned + Debug>
-    PersistentSender<Id, Value>
+impl<
+        Id: Serialize + DeserializeOwned + Eq + Hash + Debug,
+        Value: Serialize + DeserializeOwned + Debug,
+    > PersistentSender<Id, Value>
 {
     pub fn send(&self, t: (Id, Value)) -> Result<(), SendError<(Id, Value)>> {
         self.storage.persist(&t)?;
