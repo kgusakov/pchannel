@@ -11,7 +11,7 @@ fn main() {
         data_file.path().to_path_buf(),
         ack_file.path().to_path_buf(),
     );
-    let (tx, mut rx) = persistent_channel(data_path, ack_path).unwrap();
+    let (tx, mut rx) = persistent_channel(data_path, ack_path, 1000).unwrap();
 
     let m = (1, 1);
     tx.send(m.clone()).unwrap();

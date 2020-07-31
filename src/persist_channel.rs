@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use serde::{de::DeserializeOwned, Serialize};
 
 use std::fmt::Debug;
@@ -55,10 +53,17 @@ pub fn persistent_channel<
 >(
     data_file: PathBuf,
     ack_file: PathBuf,
+    compaction_threshold: u64,
 ) -> Result<(PersistentSender<Id, Value>, PersistentReceiver<Id, Value>), SendError<(Id, Value)>> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let data: Vec<(Id, Value)> = Storage::load(data_file.to_path_buf(), ack_file.to_path_buf())?;
-    let storage = Arc::new(Storage::new(data_file, ack_file)?);
+    let (data, acked_records_size) =
+        Storage::load(data_file.to_path_buf(), ack_file.to_path_buf())?;
+    let storage = Arc::new(Storage::new(
+        data_file,
+        ack_file,
+        compaction_threshold,
+        acked_records_size,
+    )?);
 
     for (id, value) in data {
         tx.send((id, value))?;
@@ -149,7 +154,7 @@ mod p_tests {
         );
 
         {
-            let (tx, mut rx) = persistent_channel(data_path, ack_path).unwrap();
+            let (tx, mut rx) = persistent_channel(data_path, ack_path, 1000).unwrap();
             tx.send((1i32, 1i32)).unwrap();
 
             let f = async move {
@@ -165,6 +170,7 @@ mod p_tests {
             let (_, mut rx) = persistent_channel(
                 data_file.path().to_path_buf(),
                 ack_file.path().to_path_buf(),
+                1000,
             )
             .unwrap();
             let f = async move {
