@@ -127,7 +127,7 @@ pub struct Message<Id, Value> {
     storage: Arc<Storage<Id, Value>>,
 }
 
-impl<Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + DeserializeOwned>
+impl<Id: Serialize + DeserializeOwned + Eq + Hash + Clone, Value: Serialize + DeserializeOwned>
     Message<Id, Value>
 {
     pub async fn ack(&self) -> Result<(), StorageError> {

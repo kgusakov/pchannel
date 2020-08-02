@@ -27,7 +27,7 @@ pub(crate) struct Storage<Id, Value> {
     data_mutex: std::sync::Mutex<std::fs::File>,
     ack_mutex: tokio::sync::Mutex<std::fs::File>,
     compaction_threshold: u64,
-    compaction_records_counter: std::sync::Mutex<u64>,
+    compaction_records_counter: tokio::sync::Mutex<u64>,
     phantom_id: PhantomData<Id>,
     phantom_value: PhantomData<Value>,
 }
@@ -47,7 +47,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
             data_mutex: std::sync::Mutex::new(OpenOptions::new().append(true).open(data_path)?),
             ack_mutex: tokio::sync::Mutex::new(OpenOptions::new().append(true).open(ack_path)?),
             compaction_threshold,
-            compaction_records_counter: std::sync::Mutex::new(uncompacted_records),
+            compaction_records_counter: tokio::sync::Mutex::new(uncompacted_records),
             phantom_id: PhantomData,
             phantom_value: PhantomData,
         })
@@ -196,10 +196,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         }
 
         {
-            let mut counter = self
-                .compaction_records_counter
-                .lock()
-                .map_err(|_| StorageError::AsyncMutexPoisonError("counter".to_string()))?;
+            let mut counter = self.compaction_records_counter.lock().await;
             *counter = *counter + 1;
             if *counter > self.compaction_threshold {
                 self.compaction().await?;
@@ -211,11 +208,11 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
     }
 
     async fn compaction(&self) -> Result<()> {
+        let mut al = self.ack_mutex.lock().await;
         let mut dl = self
             .data_mutex
             .lock()
             .map_err(|_| StorageError::AsyncMutexPoisonError("data_file".to_string()))?;
-        let mut al = self.ack_mutex.lock().await;
         let alive_data =
             Self::serialize_all(&Self::load_alive_records(&self.data_path, &self.ack_path)?.0)?;
         let tmp_path = self.data_path.with_extension(".tmp");
@@ -245,6 +242,7 @@ mod test {
     use super::*;
     use proptest::prelude::*;
     use proptest::sample::subsequence;
+    use std::sync::Arc;
     use tempfile::NamedTempFile;
     use tokio::runtime::Runtime;
 
@@ -370,16 +368,24 @@ mod test {
                 ack_file.path().to_path_buf(),
             );
 
-            let mut r = runtime();
-
             {
+                let r = runtime();
+
                 let storage =
-                    Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), compaction_treshold as u64, 0).unwrap();
+                    Arc::new(Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), compaction_treshold as u64, 0).unwrap());
 
                 storage.persist_all(&data).unwrap();
-
-                for (id, _) in data_to_ack.iter() {
-                    r.block_on(storage.remove(&id)).unwrap();
+                let (tx, rx) = std::sync::mpsc::channel();
+                for (id, _) in data_to_ack.clone() {
+                    let s = storage.clone();
+                    let t = tx.clone();
+                    r.spawn(async move {
+                        s.remove(&id).await.unwrap();
+                        t.send(true).unwrap();
+                    });
+                }
+                for _ in data_to_ack.clone() {
+                    rx.recv().unwrap();
                 }
             }
             let (alive_data, _) = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
