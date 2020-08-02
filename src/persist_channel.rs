@@ -130,8 +130,8 @@ pub struct Message<Id, Value> {
 impl<Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + DeserializeOwned>
     Message<Id, Value>
 {
-    pub async fn ack(self) -> Result<(), StorageError> {
-        self.storage.remove(self.id).await
+    pub async fn ack(&self) -> Result<(), StorageError> {
+        self.storage.remove(&self.id).await
     }
 }
 
@@ -142,7 +142,7 @@ mod p_tests {
     use tokio::runtime::Runtime;
 
     #[test]
-    fn persist_channel_test() {
+    fn persist_channel_no_ack_test() {
         let mut runtime = Runtime::new().unwrap();
         let data_file = NamedTempFile::new().unwrap();
         let ack_file = NamedTempFile::new().unwrap();
@@ -178,6 +178,46 @@ mod p_tests {
             };
             let m: Message<i32, i32> = runtime.block_on(f);
             assert_eq!((1, 1), (m.id, m.value))
+        }
+    }
+
+    #[test]
+    fn persist_channel_ack_test() {
+        let mut runtime = Runtime::new().unwrap();
+        let data_file = NamedTempFile::new().unwrap();
+        let ack_file = NamedTempFile::new().unwrap();
+
+        let (data_path, ack_path) = (
+            data_file.path().to_path_buf(),
+            ack_file.path().to_path_buf(),
+        );
+
+        {
+            let (tx, mut rx) = persistent_channel(data_path, ack_path, 1000).unwrap();
+            tx.send((1i32, 1i32)).unwrap();
+
+            let f = async move {
+                let m = rx.recv().await?;
+                m.ack().await.ok()?;
+                Some(m)
+            };
+            let m: Message<i32, i32> = runtime.block_on(f).unwrap();
+            assert_eq!((1, 1), (m.id, m.value))
+        }
+
+        {
+            let (_, mut rx) = persistent_channel(
+                data_file.path().to_path_buf(),
+                ack_file.path().to_path_buf(),
+                1000,
+            )
+            .unwrap();
+            let f = async move {
+                let m = rx.recv().await;
+                m
+            };
+            let m: Option<Message<i32, i32>> = runtime.block_on(f);
+            assert!(m.is_none());
         }
     }
 }

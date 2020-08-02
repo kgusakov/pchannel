@@ -182,7 +182,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         Ok(())
     }
 
-    pub(crate) async fn remove(&self, id: Id) -> Result<()> {
+    pub(crate) async fn remove(&self, id: &Id) -> Result<()> {
         let mut data = Vec::<u8>::new();
 
         let id_bytes = bincode::serialize(&id)?;
@@ -285,7 +285,7 @@ mod test {
                 .0;
 
             storage.persist(&(1, 2)).unwrap();
-            runtime().block_on(storage.remove(1)).unwrap();
+            runtime().block_on(storage.remove(&1)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
         assert_eq!(Vec::<(i32, i32)>::new(), data.0);
@@ -308,9 +308,9 @@ mod test {
 
             let data = vec![(1, 2), (2, 3), (3, 4), (4, 3)];
             storage.persist_all(&data).unwrap();
-            runtime().block_on(storage.remove(1)).unwrap();
-            runtime().block_on(storage.remove(2)).unwrap();
-            runtime().block_on(storage.remove(3)).unwrap();
+            runtime().block_on(storage.remove(&1)).unwrap();
+            runtime().block_on(storage.remove(&2)).unwrap();
+            runtime().block_on(storage.remove(&3)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
         assert_eq!(vec![(4, 3)], data.0);
@@ -333,10 +333,10 @@ mod test {
 
             let data = vec![(1, 2), (2, 3), (3, 4), (4, 3), (5, 6)];
             storage.persist_all(&data).unwrap();
-            runtime().block_on(storage.remove(1)).unwrap();
-            runtime().block_on(storage.remove(2)).unwrap();
-            runtime().block_on(storage.remove(3)).unwrap();
-            runtime().block_on(storage.remove(4)).unwrap();
+            runtime().block_on(storage.remove(&1)).unwrap();
+            runtime().block_on(storage.remove(&2)).unwrap();
+            runtime().block_on(storage.remove(&3)).unwrap();
+            runtime().block_on(storage.remove(&4)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
         assert_eq!(vec![(5, 6)], data.0);
