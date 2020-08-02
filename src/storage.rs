@@ -243,6 +243,8 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
 #[cfg(test)]
 mod test {
     use super::*;
+    use proptest::prelude::*;
+    use proptest::sample::subsequence;
     use tempfile::NamedTempFile;
     use tokio::runtime::Runtime;
 
@@ -302,15 +304,17 @@ mod test {
             ack_file.path().to_path_buf(),
         );
 
+        let mut r = runtime();
+
         {
             let storage =
                 Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), 2, 0).unwrap();
 
             let data = vec![(1, 2), (2, 3), (3, 4), (4, 3)];
             storage.persist_all(&data).unwrap();
-            runtime().block_on(storage.remove(&1)).unwrap();
-            runtime().block_on(storage.remove(&2)).unwrap();
-            runtime().block_on(storage.remove(&3)).unwrap();
+            r.block_on(storage.remove(&1)).unwrap();
+            r.block_on(storage.remove(&2)).unwrap();
+            r.block_on(storage.remove(&3)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
         assert_eq!(vec![(4, 3)], data.0);
@@ -326,6 +330,7 @@ mod test {
             data_file.path().to_path_buf(),
             ack_file.path().to_path_buf(),
         );
+        let mut r = runtime();
 
         {
             let storage =
@@ -333,14 +338,58 @@ mod test {
 
             let data = vec![(1, 2), (2, 3), (3, 4), (4, 3), (5, 6)];
             storage.persist_all(&data).unwrap();
-            runtime().block_on(storage.remove(&1)).unwrap();
-            runtime().block_on(storage.remove(&2)).unwrap();
-            runtime().block_on(storage.remove(&3)).unwrap();
-            runtime().block_on(storage.remove(&4)).unwrap();
+            r.block_on(storage.remove(&1)).unwrap();
+            r.block_on(storage.remove(&2)).unwrap();
+            r.block_on(storage.remove(&3)).unwrap();
+            r.block_on(storage.remove(&4)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
         assert_eq!(vec![(5, 6)], data.0);
         assert_eq!(1, data.1);
+    }
+
+    fn data_acked_data_compaction_treshold(
+    ) -> BoxedStrategy<(Vec<(i32, i32)>, Vec<(i32, i32)>, usize)> {
+        prop::collection::vec(any::<(i32, i32)>(), 1..100)
+            .prop_flat_map(|vec| {
+                let data = vec.clone();
+                let size = data.len();
+                (Just(vec), subsequence(data, 0usize..size), 0usize..size)
+            })
+            .boxed()
+    }
+
+    proptest! {
+        #[test]
+        fn property_based_storage_test((data, data_to_ack, compaction_treshold) in data_acked_data_compaction_treshold()) {
+            let data_file = NamedTempFile::new().unwrap();
+            let ack_file = NamedTempFile::new().unwrap();
+
+            let (data_path, ack_path) = (
+                data_file.path().to_path_buf(),
+                ack_file.path().to_path_buf(),
+            );
+
+            let mut r = runtime();
+
+            {
+                let storage =
+                    Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), compaction_treshold as u64, 0).unwrap();
+
+                storage.persist_all(&data).unwrap();
+
+                for (id, _) in data_to_ack.iter() {
+                    r.block_on(storage.remove(&id)).unwrap();
+                }
+            }
+            let (alive_data, _) = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
+
+            let mut acked_ids = std::collections::HashSet::new();
+            for (id, _) in data_to_ack.iter() { acked_ids.insert(id); }
+
+            let expected_alive_data: Vec<(i32, i32)> = data.clone().into_iter().filter(move |e| !acked_ids.contains(&e.0)).collect();
+            prop_assert_eq!(expected_alive_data, alive_data);
+        }
     }
 
     fn runtime() -> tokio::runtime::Runtime {

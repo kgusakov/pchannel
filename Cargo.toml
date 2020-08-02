@@ -18,3 +18,4 @@ thiserror = "1.0.20"
 
 [dev-dependencies]
 tempfile = "3.1.0"
+proptest = "0.10.0"
