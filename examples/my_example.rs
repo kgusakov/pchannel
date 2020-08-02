@@ -1,4 +1,4 @@
-use equeue::persist_channel::*;
+use pchannel::persist_channel::*;
 use tempfile::NamedTempFile;
 use tokio::runtime::Runtime;
 
