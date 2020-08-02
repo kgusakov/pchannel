@@ -56,25 +56,24 @@ pub fn persistent_channel<
     compaction_threshold: u64,
 ) -> Result<(PersistentSender<Id, Value>, PersistentReceiver<Id, Value>), SendError<(Id, Value)>> {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-    let (data, acked_records_size) =
-        Storage::load(data_file.to_path_buf(), ack_file.to_path_buf())?;
-    let storage = Arc::new(Storage::new(
-        data_file,
-        ack_file,
+    let (storage, alive_records) = Storage::load(
+        data_file.to_path_buf(),
+        ack_file.to_path_buf(),
         compaction_threshold,
-        acked_records_size,
-    )?);
+    )?;
 
-    for (id, value) in data {
+    let synced_storage = Arc::new(storage);
+
+    for (id, value) in alive_records {
         tx.send((id, value))?;
     }
     let p_tx = PersistentSender {
         sender: tx,
-        storage: storage.clone(),
+        storage: synced_storage.clone(),
     };
     let p_rx = PersistentReceiver {
         receiver: rx,
-        storage: storage.clone(),
+        storage: synced_storage.clone(),
     };
 
     Ok((p_tx, p_rx))

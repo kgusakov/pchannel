@@ -35,7 +35,7 @@ pub(crate) struct Storage<Id, Value> {
 impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + DeserializeOwned>
     Storage<Id, Value>
 {
-    pub(crate) fn new(
+    fn new(
         data_path: PathBuf,
         ack_path: PathBuf,
         compaction_threshold: u64,
@@ -53,33 +53,53 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         })
     }
 
-    pub(crate) fn load(data_path: PathBuf, ack_path: PathBuf) -> Result<(Vec<(Id, Value)>, u64)> {
+    pub(crate) fn load(
+        data_path: PathBuf,
+        ack_path: PathBuf,
+        compaction_threshold: u64,
+    ) -> Result<(Storage<Id, Value>, Vec<(Id, Value)>)> {
+        let (alive_records, acked_size) = Self::load_alive_records(&data_path, &ack_path)?;
+        let storage = Storage::<Id, Value>::new(
+            data_path.to_path_buf(),
+            ack_path.to_path_buf(),
+            compaction_threshold,
+            acked_size as u64,
+        )?;
+        Ok((storage, alive_records))
+    }
+
+    fn load_alive_records(
+        data_path: &PathBuf,
+        ack_path: &PathBuf,
+    ) -> Result<(Vec<(Id, Value)>, u64)> {
         let acked_ids = Self::read_ack(ack_path)?;
         let acked_size = acked_ids.len();
         Ok((Self::read_data(data_path, acked_ids)?, acked_size as u64))
     }
 
-    fn read_ack<T>(ack_path: PathBuf) -> std::io::Result<HashSet<T>>
+    fn read_ack<T>(ack_path: &PathBuf) -> std::io::Result<HashSet<T>>
     where
         T: Serialize + DeserializeOwned + Eq + Hash,
     {
         let mut init_data = HashSet::new();
         {
-            let mut f = OpenOptions::new().read(true).open(&ack_path)?;
-            let mut ack_size_buf: [u8; 8] = [0; 8];
-            while f.read(&mut ack_size_buf)? != 0 {
-                let ack_size = usize::from_be_bytes(ack_size_buf);
-                assert!(ack_size > 0);
-                let mut ack_buf = vec![0 as u8; ack_size];
-                f.read(&mut ack_buf)?;
-                let id = bincode::deserialize(&ack_buf).unwrap();
-                init_data.insert(id);
+            if ack_path.exists() {
+                let mut f = OpenOptions::new().read(true).open(&ack_path)?;
+                let mut ack_size_buf: [u8; 8] = [0; 8];
+                while f.read(&mut ack_size_buf)? != 0 {
+                    let ack_size = usize::from_be_bytes(ack_size_buf);
+                    assert!(ack_size > 0);
+                    let mut ack_buf = vec![0 as u8; ack_size];
+                    f.read(&mut ack_buf)?;
+                    let id = bincode::deserialize(&ack_buf).unwrap();
+                    init_data.insert(id);
+                }
             }
         }
         Ok(init_data)
     }
 
-    fn read_data(data_path: PathBuf, removed_ids: HashSet<Id>) -> Result<Vec<(Id, Value)>> {
+    fn read_data(data_path: &PathBuf, removed_ids: HashSet<Id>) -> Result<Vec<(Id, Value)>> {
         let mut init_data = vec![];
         {
             let mut f = OpenOptions::new().read(true).open(&data_path)?;
@@ -163,16 +183,6 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
     }
 
     pub(crate) async fn remove(&self, id: Id) -> Result<()> {
-        {
-            let counter = self
-                .compaction_records_counter
-                .lock()
-                .map_err(|_| StorageError::AsyncMutexPoisonError("counter".to_string()))?;
-            if *counter > self.compaction_threshold {
-                self.compaction().await?;
-            }
-        }
-
         let mut data = Vec::<u8>::new();
 
         let id_bytes = bincode::serialize(&id)?;
@@ -185,6 +195,18 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
             ack_file.sync_data()?;
         }
 
+        {
+            let mut counter = self
+                .compaction_records_counter
+                .lock()
+                .map_err(|_| StorageError::AsyncMutexPoisonError("counter".to_string()))?;
+            *counter = *counter + 1;
+            if *counter > self.compaction_threshold {
+                self.compaction().await?;
+                *counter = 0;
+            }
+        }
+
         Ok(())
     }
 
@@ -195,19 +217,133 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
             .map_err(|_| StorageError::AsyncMutexPoisonError("data_file".to_string()))?;
         let mut al = self.ack_mutex.lock().await;
         let alive_data =
-            Self::serialize_all(&Self::load(self.data_path.clone(), self.ack_path.clone())?.0)?;
-        let tmp_path = self.data_path.join(".tmp");
-        let mut tmp_file = OpenOptions::new().write(true).open(tmp_path.clone())?;
+            Self::serialize_all(&Self::load_alive_records(&self.data_path, &self.ack_path)?.0)?;
+        let tmp_path = self.data_path.with_extension(".tmp");
+        let mut tmp_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(tmp_path.clone())?;
         tmp_file.write_all(&alive_data)?;
         tmp_file.sync_data()?;
         std::fs::rename(tmp_path, self.data_path.clone())?;
         *dl = OpenOptions::new()
             .append(true)
             .open(self.data_path.clone())?;
+        OpenOptions::new()
+            .truncate(true)
+            .write(true)
+            .open(self.ack_path.clone())?;
         *al = OpenOptions::new()
-            .create(true)
             .append(true)
-            .open(self.data_path.clone())?;
+            .open(self.ack_path.clone())?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use tempfile::NamedTempFile;
+    use tokio::runtime::Runtime;
+
+    #[test]
+    fn persist_test() {
+        let data_file = NamedTempFile::new().unwrap();
+        let ack_file = NamedTempFile::new().unwrap();
+
+        let (data_path, ack_path) = (
+            data_file.path().to_path_buf(),
+            ack_file.path().to_path_buf(),
+        );
+
+        {
+            let storage = Storage::load(data_path.to_path_buf(), ack_path.to_path_buf(), 100)
+                .unwrap()
+                .0;
+
+            storage.persist(&(1, 2)).unwrap();
+        }
+        let data = Storage::load_alive_records(&data_path, &ack_path)
+            .unwrap()
+            .0;
+        assert_eq!(vec![(1, 2)], data);
+    }
+
+    #[test]
+    fn persist_ack_test() {
+        let data_file = NamedTempFile::new().unwrap();
+        let ack_file = NamedTempFile::new().unwrap();
+
+        let (data_path, ack_path) = (
+            data_file.path().to_path_buf(),
+            ack_file.path().to_path_buf(),
+        );
+
+        {
+            let storage = Storage::load(data_path.to_path_buf(), ack_path.to_path_buf(), 100)
+                .unwrap()
+                .0;
+
+            storage.persist(&(1, 2)).unwrap();
+            runtime().block_on(storage.remove(1)).unwrap();
+        }
+        let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
+        assert_eq!(Vec::<(i32, i32)>::new(), data.0);
+        assert_eq!(1, data.1);
+    }
+
+    #[test]
+    fn full_compaction_state_test() {
+        let data_file = NamedTempFile::new().unwrap();
+        let ack_file = NamedTempFile::new().unwrap();
+
+        let (data_path, ack_path) = (
+            data_file.path().to_path_buf(),
+            ack_file.path().to_path_buf(),
+        );
+
+        {
+            let storage =
+                Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), 2, 0).unwrap();
+
+            let data = vec![(1, 2), (2, 3), (3, 4), (4, 3)];
+            storage.persist_all(&data).unwrap();
+            runtime().block_on(storage.remove(1)).unwrap();
+            runtime().block_on(storage.remove(2)).unwrap();
+            runtime().block_on(storage.remove(3)).unwrap();
+        }
+        let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
+        assert_eq!(vec![(4, 3)], data.0);
+        assert_eq!(0, data.1);
+    }
+
+    #[test]
+    fn partial_compaction_state_test() {
+        let data_file = NamedTempFile::new().unwrap();
+        let ack_file = NamedTempFile::new().unwrap();
+
+        let (data_path, ack_path) = (
+            data_file.path().to_path_buf(),
+            ack_file.path().to_path_buf(),
+        );
+
+        {
+            let storage =
+                Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), 2, 0).unwrap();
+
+            let data = vec![(1, 2), (2, 3), (3, 4), (4, 3), (5, 6)];
+            storage.persist_all(&data).unwrap();
+            runtime().block_on(storage.remove(1)).unwrap();
+            runtime().block_on(storage.remove(2)).unwrap();
+            runtime().block_on(storage.remove(3)).unwrap();
+            runtime().block_on(storage.remove(4)).unwrap();
+        }
+        let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
+        assert_eq!(vec![(5, 6)], data.0);
+        assert_eq!(1, data.1);
+    }
+
+    fn runtime() -> tokio::runtime::Runtime {
+        Runtime::new().unwrap()
     }
 }
