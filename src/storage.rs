@@ -359,6 +359,7 @@ mod test {
 
     proptest! {
         #[test]
+        #[ignore]
         fn property_based_storage_test((data, data_to_ack, compaction_treshold) in data_acked_data_compaction_treshold()) {
             let data_file = NamedTempFile::new().unwrap();
             let ack_file = NamedTempFile::new().unwrap();
