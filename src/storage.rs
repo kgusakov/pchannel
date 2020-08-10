@@ -348,7 +348,7 @@ mod test {
 
     fn data_acked_data_compaction_treshold(
     ) -> BoxedStrategy<(Vec<(i32, i32)>, Vec<(i32, i32)>, usize)> {
-        prop::collection::vec(any::<(i32, i32)>(), 1..100)
+        prop::collection::vec(any::<(i32, i32)>(), 1..10)
             .prop_flat_map(|vec| {
                 let data = vec.clone();
                 let size = data.len();
@@ -359,7 +359,6 @@ mod test {
 
     proptest! {
         #[test]
-        #[ignore]
         fn property_based_storage_test((data, data_to_ack, compaction_treshold) in data_acked_data_compaction_treshold()) {
             let data_file = NamedTempFile::new().unwrap();
             let ack_file = NamedTempFile::new().unwrap();
@@ -370,24 +369,18 @@ mod test {
             );
 
             {
-                let r = runtime();
-
                 let storage =
-                    Arc::new(Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), compaction_treshold as u64, 0).unwrap());
+                    Arc::new(Storage::<i32, i32>::new(data_path.to_path_buf(), ack_path.to_path_buf(), compaction_treshold as u64, 0).unwrap());
 
                 storage.persist_all(&data).unwrap();
-                let (tx, rx) = std::sync::mpsc::channel();
-                for (id, _) in data_to_ack.clone() {
+
+                let  remove_futures = data_to_ack.clone().into_iter().map(|(id, _)| {
                     let s = storage.clone();
-                    let t = tx.clone();
-                    r.spawn(async move {
+                    async move {
                         s.remove(&id).await.unwrap();
-                        t.send(true).unwrap();
-                    });
-                }
-                for _ in data_to_ack.clone() {
-                    rx.recv().unwrap();
-                }
+                    }
+                });
+                runtime().block_on(futures::future::join_all(remove_futures));
             }
             let (alive_data, _) = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
 
