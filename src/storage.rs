@@ -145,13 +145,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
                 .map_err(|_| StorageError::AsyncMutexPoisonError("data_file".to_string()))?;
             data_file.write_all(&data)?;
             if fsync {
-                let now = std::time::Instant::now();
-
-                // we sleep for 2 seconds
                 data_file.sync_data()?;
-                // it prints '2'
-                println!("fsync {}", now.elapsed().as_micros());
-                
             }
         }
         Ok(())
