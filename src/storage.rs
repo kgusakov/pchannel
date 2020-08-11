@@ -144,7 +144,15 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
                 .lock()
                 .map_err(|_| StorageError::AsyncMutexPoisonError("data_file".to_string()))?;
             data_file.write_all(&data)?;
-            if fsync { data_file.sync_data()?; }
+            if fsync {
+                let now = std::time::Instant::now();
+
+                // we sleep for 2 seconds
+                data_file.sync_data()?;
+                // it prints '2'
+                println!("fsync {}", now.elapsed().as_micros());
+                
+            }
         }
         Ok(())
     }
@@ -182,7 +190,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         Ok(())
     }
 
-    pub(crate) async fn remove(&self, id: &Id) -> Result<()> {
+    pub(crate) async fn remove(&self, id: &Id, fsync: bool) -> Result<()> {
         let mut data = Vec::<u8>::new();
 
         let id_bytes = bincode::serialize(&id)?;
@@ -192,7 +200,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         {
             let mut ack_file = self.ack_mutex.lock().await;
             ack_file.write_all(&data)?;
-            ack_file.sync_data()?;
+            if fsync { ack_file.sync_data()? };
         }
 
         {
@@ -285,7 +293,7 @@ mod test {
                 .0;
 
             storage.persist(&(1, 2), true).unwrap();
-            runtime().block_on(storage.remove(&1)).unwrap();
+            runtime().block_on(storage.remove(&1, true)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
         assert_eq!(Vec::<(i32, i32)>::new(), data.0);
@@ -310,9 +318,9 @@ mod test {
 
             let data = vec![(1, 2), (2, 3), (3, 4), (4, 3)];
             storage.persist_all(&data).unwrap();
-            r.block_on(storage.remove(&1)).unwrap();
-            r.block_on(storage.remove(&2)).unwrap();
-            r.block_on(storage.remove(&3)).unwrap();
+            r.block_on(storage.remove(&1, true)).unwrap();
+            r.block_on(storage.remove(&2, true)).unwrap();
+            r.block_on(storage.remove(&3, true)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
         assert_eq!(vec![(4, 3)], data.0);
@@ -336,10 +344,10 @@ mod test {
 
             let data = vec![(1, 2), (2, 3), (3, 4), (4, 3), (5, 6)];
             storage.persist_all(&data).unwrap();
-            r.block_on(storage.remove(&1)).unwrap();
-            r.block_on(storage.remove(&2)).unwrap();
-            r.block_on(storage.remove(&3)).unwrap();
-            r.block_on(storage.remove(&4)).unwrap();
+            r.block_on(storage.remove(&1, true)).unwrap();
+            r.block_on(storage.remove(&2, true)).unwrap();
+            r.block_on(storage.remove(&3, true)).unwrap();
+            r.block_on(storage.remove(&4, true)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
         assert_eq!(vec![(5, 6)], data.0);
@@ -377,7 +385,7 @@ mod test {
                 let  remove_futures = data_to_ack.clone().into_iter().map(|(id, _)| {
                     let s = storage.clone();
                     async move {
-                        s.remove(&id).await.unwrap();
+                        s.remove(&id, true).await.unwrap();
                     }
                 });
                 runtime().block_on(futures::future::join_all(remove_futures));

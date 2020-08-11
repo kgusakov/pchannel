@@ -20,7 +20,7 @@ fn main() {
     let f = async move {
         let m = rx.recv().await?;
         println!("Received message {:?}", (m.id, m.value));
-        m.ack().await.unwrap();
+        m.ack(true).await.unwrap();
         Some(())
     };
     runtime.block_on(f).unwrap();

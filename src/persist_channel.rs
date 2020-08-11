@@ -130,8 +130,8 @@ pub struct Message<Id, Value> {
 impl<Id: Serialize + DeserializeOwned + Eq + Hash + Clone, Value: Serialize + DeserializeOwned>
     Message<Id, Value>
 {
-    pub async fn ack(&self) -> Result<(), StorageError> {
-        self.storage.remove(&self.id).await
+    pub async fn ack(&self, fsync: bool) -> Result<(), StorageError> {
+        self.storage.remove(&self.id, fsync).await
     }
 }
 
@@ -198,7 +198,7 @@ mod p_tests {
 
             let f = async move {
                 let m = rx.recv().await?;
-                m.ack().await.ok()?;
+                m.ack(true).await.ok()?;
                 Some(m)
             };
             let m: Message<i32, i32> = runtime.block_on(f).unwrap();
