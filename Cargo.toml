@@ -21,3 +21,8 @@ tempfile = "3.1.0"
 proptest = "0.10.0"
 tokio = {version = "0.2.22", features = ["rt-core"]}
 futures = "0.3.5"
+criterion = "0.3.3"
+
+[[bench]]
+name = "pchannel_benchmark"
+harness = false

@@ -89,8 +89,8 @@ impl<
         Value: Serialize + DeserializeOwned + Debug,
     > PersistentSender<Id, Value>
 {
-    pub fn send(&self, t: (Id, Value)) -> Result<(), SendError<(Id, Value)>> {
-        self.storage.persist(&t)?;
+    pub fn send(&self, t: (Id, Value), fsync: bool) -> Result<(), SendError<(Id, Value)>> {
+        self.storage.persist(&t, fsync)?;
         Ok(self.sender.send(t)?)
     }
 
@@ -154,7 +154,7 @@ mod p_tests {
 
         {
             let (tx, mut rx) = persistent_channel(data_path, ack_path, 1000).unwrap();
-            tx.send((1i32, 1i32)).unwrap();
+            tx.send((1i32, 1i32), true).unwrap();
 
             let f = async move {
                 let m = rx.recv().await?;
@@ -194,7 +194,7 @@ mod p_tests {
 
         {
             let (tx, mut rx) = persistent_channel(data_path, ack_path, 1000).unwrap();
-            tx.send((1i32, 1i32)).unwrap();
+            tx.send((1i32, 1i32), true).unwrap();
 
             let f = async move {
                 let m = rx.recv().await?;

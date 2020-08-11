@@ -124,7 +124,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         Ok(init_data)
     }
 
-    pub(crate) fn persist(&self, element: &(Id, Value)) -> Result<()> {
+    pub(crate) fn persist(&self, element: &(Id, Value), fsync: bool) -> Result<()> {
         let mut data = Vec::<u8>::new();
         let (id_bytes, value_bytes) = (
             bincode::serialize(&element.0)?,
@@ -143,8 +143,8 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
                 .data_mutex
                 .lock()
                 .map_err(|_| StorageError::AsyncMutexPoisonError("data_file".to_string()))?;
-            data_file.write_all(&data)?;
-            data_file.sync_data()?;
+            // data_file.write_all(&data)?;
+            if fsync { data_file.sync_data()?; }
         }
         Ok(())
     }
@@ -261,7 +261,7 @@ mod test {
                 .unwrap()
                 .0;
 
-            storage.persist(&(1, 2)).unwrap();
+            storage.persist(&(1, 2), true).unwrap();
         }
         let data = Storage::load_alive_records(&data_path, &ack_path)
             .unwrap()
@@ -284,7 +284,7 @@ mod test {
                 .unwrap()
                 .0;
 
-            storage.persist(&(1, 2)).unwrap();
+            storage.persist(&(1, 2), true).unwrap();
             runtime().block_on(storage.remove(&1)).unwrap();
         }
         let data = Storage::<i32, i32>::load_alive_records(&data_path, &ack_path).unwrap();
