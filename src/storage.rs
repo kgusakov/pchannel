@@ -143,7 +143,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
                 .data_mutex
                 .lock()
                 .map_err(|_| StorageError::AsyncMutexPoisonError("data_file".to_string()))?;
-            // data_file.write_all(&data)?;
+            data_file.write_all(&data)?;
             if fsync { data_file.sync_data()?; }
         }
         Ok(())
