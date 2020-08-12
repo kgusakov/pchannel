@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use pchannel::persist_channel::*;
 use tempfile::NamedTempFile;
 use tokio::runtime::Runtime;
@@ -17,6 +17,8 @@ fn send_benchmark(c: &mut Criterion) {
     let (tokio_tx, _) = unbounded_channel::<(i32, i32)>();
 
     let mut group = c.benchmark_group("tokio channel vs pchannel on send");
+
+    group.throughput(Throughput::Elements(1 as u64));
 
     group.bench_function("send_tokio_channel", |b| {
         b.iter(|| tokio_tx.send((black_box(20), black_box(20))))
@@ -44,6 +46,7 @@ fn send_receive_ack_benchmark(c: &mut Criterion) {
     let (tokio_tx, mut tokio_rx) = unbounded_channel::<(i32, i32)>();
 
     let mut group = c.benchmark_group("tokio channel vs pchannel on receive");
+    group.throughput(Throughput::Elements(1 as u64));
 
     {
         let mut r = Runtime::new().unwrap();
