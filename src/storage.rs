@@ -354,7 +354,7 @@ mod test {
 
     fn data_acked_data_compaction_treshold(
     ) -> BoxedStrategy<(Vec<(i32, i32)>, Vec<(i32, i32)>, usize)> {
-        prop::collection::vec(any::<(i32, i32)>(), 1..10)
+        prop::collection::vec(any::<(i32, i32)>(), 1..1000)
             .prop_flat_map(|vec| {
                 let data = vec.clone();
                 let size = data.len();
@@ -383,7 +383,7 @@ mod test {
                 let  remove_futures = data_to_ack.clone().into_iter().map(|(id, _)| {
                     let s = storage.clone();
                     async move {
-                        s.remove(&id, true).await.unwrap();
+                        s.remove(&id, false).await.unwrap();
                     }
                 });
                 runtime().block_on(futures::future::join_all(remove_futures));
