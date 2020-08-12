@@ -14,13 +14,13 @@ fn main() {
     let (tx, mut rx) = persistent_channel(data_path, ack_path, 1000).unwrap();
 
     let m = (1, 1);
-    tx.send(m.clone(), true).unwrap();
+    tx.send(m.clone()).unwrap();
     println!("Sent message {:?}", m);
 
     let f = async move {
         let m = rx.recv().await?;
         println!("Received message {:?}", (m.id, m.value));
-        m.ack(true).await.unwrap();
+        m.ack().await.unwrap();
         Some(())
     };
     runtime.block_on(f).unwrap();

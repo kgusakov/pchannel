@@ -171,7 +171,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         Ok(data)
     }
 
-    pub(crate) fn persist_all(&self, elements: &Vec<(Id, Value)>) -> Result<()> {
+    pub(crate) fn persist_all(&self, elements: &Vec<(Id, Value)>, fsync: bool) -> Result<()> {
         let data = Self::serialize_all(elements)?;
         {
             let mut data_file = self
@@ -179,7 +179,9 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
                 .lock()
                 .map_err(|_| StorageError::AsyncMutexPoisonError("data_file".to_string()))?;
             data_file.write_all(&data)?;
-            data_file.sync_data()?;
+            if fsync {
+                data_file.sync_data()?;
+            }
         }
         Ok(())
     }
@@ -194,7 +196,9 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         {
             let mut ack_file = self.ack_mutex.lock().await;
             ack_file.write_all(&data)?;
-            if fsync { ack_file.sync_data()? };
+            if fsync {
+                ack_file.sync_data()?
+            };
         }
 
         {
@@ -311,7 +315,7 @@ mod test {
                 Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), 2, 0).unwrap();
 
             let data = vec![(1, 2), (2, 3), (3, 4), (4, 3)];
-            storage.persist_all(&data).unwrap();
+            storage.persist_all(&data, false).unwrap();
             r.block_on(storage.remove(&1, true)).unwrap();
             r.block_on(storage.remove(&2, true)).unwrap();
             r.block_on(storage.remove(&3, true)).unwrap();
@@ -337,7 +341,7 @@ mod test {
                 Storage::new(data_path.to_path_buf(), ack_path.to_path_buf(), 2, 0).unwrap();
 
             let data = vec![(1, 2), (2, 3), (3, 4), (4, 3), (5, 6)];
-            storage.persist_all(&data).unwrap();
+            storage.persist_all(&data, false).unwrap();
             r.block_on(storage.remove(&1, true)).unwrap();
             r.block_on(storage.remove(&2, true)).unwrap();
             r.block_on(storage.remove(&3, true)).unwrap();
@@ -374,7 +378,7 @@ mod test {
                 let storage =
                     Arc::new(Storage::<i32, i32>::new(data_path.to_path_buf(), ack_path.to_path_buf(), compaction_treshold as u64, 0).unwrap());
 
-                storage.persist_all(&data).unwrap();
+                storage.persist_all(&data, false).unwrap();
 
                 let  remove_futures = data_to_ack.clone().into_iter().map(|(id, _)| {
                     let s = storage.clone();

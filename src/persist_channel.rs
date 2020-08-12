@@ -89,13 +89,33 @@ impl<
         Value: Serialize + DeserializeOwned + Debug,
     > PersistentSender<Id, Value>
 {
-    pub fn send(&self, t: (Id, Value), fsync: bool) -> Result<(), SendError<(Id, Value)>> {
+    pub fn send(&self, t: (Id, Value)) -> Result<(), SendError<(Id, Value)>> {
+        self._send(t, false)
+    }
+
+    pub fn send_fsync(&self, t: (Id, Value), fsync: bool) -> Result<(), SendError<(Id, Value)>> {
+        self._send(t, fsync)
+    }
+
+    fn _send(&self, t: (Id, Value), fsync: bool) -> Result<(), SendError<(Id, Value)>> {
         self.storage.persist(&t, fsync)?;
         Ok(self.sender.send(t)?)
     }
 
     pub fn send_all(&self, t: Vec<(Id, Value)>) -> Result<(), SendError<(Id, Value)>> {
-        self.storage.persist_all(&t)?;
+        self._send_all(t, false)
+    }
+
+    pub fn send_all_fsync(
+        &self,
+        t: Vec<(Id, Value)>,
+        fsync: bool,
+    ) -> Result<(), SendError<(Id, Value)>> {
+        self._send_all(t, fsync)
+    }
+
+    fn _send_all(&self, t: Vec<(Id, Value)>, fsync: bool) -> Result<(), SendError<(Id, Value)>> {
+        self.storage.persist_all(&t, fsync)?;
         for v in t {
             self.sender.send(v)?
         }
@@ -130,7 +150,15 @@ pub struct Message<Id, Value> {
 impl<Id: Serialize + DeserializeOwned + Eq + Hash + Clone, Value: Serialize + DeserializeOwned>
     Message<Id, Value>
 {
-    pub async fn ack(&self, fsync: bool) -> Result<(), StorageError> {
+    pub async fn ack(&self) -> Result<(), StorageError> {
+        self._ack(false).await
+    }
+
+    pub async fn ack_fsync(&self, fsync: bool) -> Result<(), StorageError> {
+        self._ack(fsync).await
+    }
+
+    async fn _ack(&self, fsync: bool) -> Result<(), StorageError> {
         self.storage.remove(&self.id, fsync).await
     }
 }
@@ -154,7 +182,7 @@ mod p_tests {
 
         {
             let (tx, mut rx) = persistent_channel(data_path, ack_path, 1000).unwrap();
-            tx.send((1i32, 1i32), true).unwrap();
+            tx.send((1i32, 1i32)).unwrap();
 
             let f = async move {
                 let m = rx.recv().await?;
@@ -194,11 +222,11 @@ mod p_tests {
 
         {
             let (tx, mut rx) = persistent_channel(data_path, ack_path, 1000).unwrap();
-            tx.send((1i32, 1i32), true).unwrap();
+            tx.send((1i32, 1i32)).unwrap();
 
             let f = async move {
                 let m = rx.recv().await?;
-                m.ack(true).await.ok()?;
+                m.ack().await.ok()?;
                 Some(m)
             };
             let m: Message<i32, i32> = runtime.block_on(f).unwrap();
