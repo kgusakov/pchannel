@@ -1,6 +1,9 @@
 use serde::{de::DeserializeOwned, Serialize};
 
-use std::fmt::Debug;
+use std::{
+    fmt,
+    fmt::Debug
+};
 
 use std::hash::Hash;
 
@@ -141,6 +144,7 @@ impl<Id: DeserializeOwned, Value: DeserializeOwned> PersistentReceiver<Id, Value
         }
     }
 }
+
 pub struct Message<Id, Value> {
     pub id: Id,
     pub value: Value,
@@ -160,6 +164,13 @@ impl<Id: Serialize + DeserializeOwned + Eq + Hash + Clone, Value: Serialize + De
 
     async fn _ack(&self, fsync: bool) -> Result<(), StorageError> {
         self.storage.remove(&self.id, fsync).await
+    }
+}
+
+impl<Id: Debug, Value: Debug> Debug  for Message<Id, Value> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        // Use `self.number` to refer to each positional data point.
+        write!(f, "({:?}, {:?})", self.id, self.value)
     }
 }
 

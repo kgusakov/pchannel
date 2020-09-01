@@ -1,16 +1,3 @@
-![Rust](https://github.com/kgusakov/pchannel/workflows/Rust/badge.svg?branch=master&event=push)
-
-# pchannel
-
-Simple extension of Tokio unbounded channels with:
-
-- separate receive-ack semantic
-- file-based persistence of messages (all unacked messages will be replayed after channel restart)
-
-## Usage
-
-```rust
-
 use pchannel::persist_channel::{Message, persistent_channel};
 use tokio::runtime::Runtime;
 use std::path::PathBuf;
@@ -20,12 +7,8 @@ fn main() {
     // for decreasing locks contention -
     // storage is using separate files for storing message data and ack events
     let (data_path, ack_path) = (PathBuf::from("/tmp/messages.data"), PathBuf::from("/tmp/acks.data"));
-
-    // third parameter "compaction_threshold" is using for cleaning the storage from redundant data and ack events.
-    // current compaction algorithm  freeze channel operations - so, compaction threshold should't be so small.
-    // on the other hand - big compaction threshold will waste your disk space and increase the time of compaction process itself 
     let (tx, mut rx) = 
-        persistent_channel(data_path, ack_path, 100)
+        persistent_channel(data_path, ack_path, 1000)
             .expect("Error while trying to replay unacked messages from storage");
 
     let m = (1, 1);
@@ -41,4 +24,3 @@ fn main() {
     };
     runtime.block_on(f);
 }
-```

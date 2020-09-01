@@ -44,8 +44,8 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
         Ok(Self {
             data_path: data_path.clone(),
             ack_path: ack_path.clone(),
-            data_mutex: std::sync::Mutex::new(OpenOptions::new().append(true).open(data_path)?),
-            ack_mutex: tokio::sync::Mutex::new(OpenOptions::new().append(true).open(ack_path)?),
+            data_mutex: std::sync::Mutex::new(OpenOptions::new().create(true).append(true).open(data_path)?),
+            ack_mutex: tokio::sync::Mutex::new(OpenOptions::new().create(true).append(true).open(ack_path)?),
             compaction_threshold,
             compaction_records_counter: tokio::sync::Mutex::new(uncompacted_records),
             phantom_id: PhantomData,
@@ -102,6 +102,7 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
     fn read_data(data_path: &PathBuf, removed_ids: HashSet<Id>) -> Result<Vec<(Id, Value)>> {
         let mut init_data = vec![];
         {
+            Self::touch(&data_path)?;
             let mut f = OpenOptions::new().read(true).open(&data_path)?;
             let mut id_size_buf: [u8; 8] = [0; 8];
             let mut data_size_buf: [u8; 8] = [0; 8];
@@ -122,6 +123,11 @@ impl<'a, Id: Serialize + DeserializeOwned + Eq + Hash, Value: Serialize + Deseri
             }
         }
         Ok(init_data)
+    }
+    
+    fn touch(path: &PathBuf) -> std::io::Result<()> {
+        OpenOptions::new().create(true).write(true).open(path)?;
+        Ok(())
     }
 
     pub(crate) fn persist(&self, element: &(Id, Value), fsync: bool) -> Result<()> {
